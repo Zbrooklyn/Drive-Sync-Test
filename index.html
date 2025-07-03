@@ -1,260 +1,199 @@
 <!DOCTYPE html>
 <!--
-  Google-Drive Note POC • Updated for Mobile Responsiveness
+  All-in-One Drive Note POC • 2025-07-03
   Usage:
-    1. Paste your Google OAuth Client ID in Settings.
-    2. Sign in, then Load ⭳ or Save ⭱.
+    1. Paste your Google OAuth Client ID + API Key in Settings.
+    2. Sign in → Save ⭱ → Load ⭳ to sync quick-note.txt in Drive.
 -->
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" /> <!-- :contentReference[oaicite:11]{index=11} -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Quick-Note ⇆ Google Drive</title>
   <style>
-    :root {
-      --bg: #f5f7fa;
-      --fg: #222;
-      --accent: #1669f2;
-    }
-    *, *::before, *::after {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-    body {
-      display: flex;                /* flex layout :contentReference[oaicite:12]{index=12} */
-      flex-direction: column;
-      height: 100vh;
-      background: var(--bg);
-      color: var(--fg);
-      font-family: system-ui, sans-serif;
-    }
-    header, footer {
-      background: #fff;
-      box-shadow: 0 2px 4px rgba(0,0,0,.05);
-      padding: 1rem;
-    }
-    header {
-      display: flex;
-      align-items: center;
-      gap: .5rem;
-    }
-    details > summary {
-      cursor: pointer;
-      font-weight: 600;
-    }
-    input[type="text"] {
-      flex: 1;
-      max-width: 420px;
-      padding: .5rem;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-    }
-    textarea {
-      flex: 1;                     /* fill available space :contentReference[oaicite:13]{index=13} */
-      width: 100%;
-      padding: 1rem;
-      border: none;
-      resize: none;
-      font-size: 1rem;
-      line-height: 1.4;
-      outline: none;
-    }
-    footer {
-      display: flex;               /* sticky footer pattern :contentReference[oaicite:14]{index=14} */
-      justify-content: center;
-      gap: 1rem;
-    }
-    button {
-      flex: 0 1 auto;
-      padding: .75rem 1.5rem;
-      border: none;
-      border-radius: 4px;
-      background: var(--accent);
-      color: #fff;
-      font-size: 1rem;
-      cursor: pointer;
-    }
-    button:disabled {
-      opacity: .5;                /* disabled styling :contentReference[oaicite:15]{index=15} */
-      cursor: not-allowed;
-    }
-    /* Mobile adjustments */
-    @media (max-width: 600px) {    /* media query for small screens :contentReference[oaicite:16]{index=16} */
-      header, footer {
-        padding: .5rem;
-      }
-      input[type="text"] {
-        width: 100%;
-        max-width: none;
-      }
-      button {
-        flex: 1; 
-        font-size: .9rem;
-        padding: .5rem;
-      }
-      textarea {
-        font-size: .95rem;
-      }
+    :root{--bg:#f5f7fa;--fg:#222;--accent:#1669f2}
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{display:flex;flex-direction:column;height:100vh;
+         background:var(--bg);color:var(--fg);
+         font-family:system-ui,sans-serif}
+    header,footer{background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.05);padding:1rem}
+    header{display:flex;gap:.5rem;align-items:center}
+    details>summary{cursor:pointer;font-weight:600}
+    input,button{font-size:1rem}
+    input{flex:1;max-width:200px;padding:.5rem;border:1px solid #ccc;border-radius:4px}
+    textarea{flex:1;width:100%;padding:1rem;border:none;resize:none;outline:none;
+             font-size:1rem;line-height:1.4}
+    footer{display:flex;gap:1rem;justify-content:center}
+    button{padding:.75rem 1.5rem;border:none;border-radius:4px;
+           background:var(--accent);color:#fff;cursor:pointer}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    @media(max-width:600px){
+      header,footer{padding:.5rem}
+      input{max-width:none;width:100%}
+      button{flex:1;padding:.5rem;font-size:.9rem}
+      textarea{font-size:.95rem}
     }
   </style>
 </head>
 <body>
+
   <header>
     <details open>
       <summary>Settings ⚙️</summary>
-      <label>
-        Client ID:
-        <input id="clientId" type="text" placeholder="Paste your Google OAuth Client ID" />
+      <label>Client ID:
+        <input id="clientId" placeholder="G-Client-ID" />
       </label>
-      <button id="signin" disabled>Sign in with Google</button>
+      <label>API Key:
+        <input id="apiKey" placeholder="G-API-Key" />
+      </label>
+      <button id="signin" disabled>Sign in</button>
     </details>
   </header>
 
-  <textarea id="note" placeholder="Start typing…"></textarea>
+  <textarea id="note" placeholder="Type your note…"></textarea>
 
   <footer>
     <button id="load" disabled>Load ⭳</button>
     <button id="save" disabled>Save ⭱</button>
   </footer>
 
-  <!-- Google Identity Services JS -->
+  <!-- 1) Google Identity Services -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- 2) Google API Client -->
+  <script src="https://apis.google.com/js/api.js" async defer></script>
 
   <script type="module">
-    /* ==== Config & state ==== */
-    const SCOPE = 'https://www.googleapis.com/auth/drive.file';
-    const FILE_NAME = 'quick-note.txt';
-    let accessToken = null, tokenClient = null;
+  // ==== Config & state ====
+  const FILE_NAME = 'quick-note.txt';
+  let tokenClient, accessToken, fileId;
+  
+  // ==== DOM refs ====
+  const clientIn = document.getElementById('clientId');
+  const keyIn    = document.getElementById('apiKey');
+  const signBtn  = document.getElementById('signin');
+  const loadBtn  = document.getElementById('load');
+  const saveBtn  = document.getElementById('save');
+  const noteTA   = document.getElementById('note');
 
-    /* ==== DOM elements ==== */
-    const clientIdInput = document.getElementById('clientId');
-    const signInBtn     = document.getElementById('signin');
-    const loadBtn       = document.getElementById('load');
-    const saveBtn       = document.getElementById('save');
-    const noteArea      = document.getElementById('note');
+  // ==== localStorage helpers ====
+  const LS = {
+    get clientId(){ return localStorage.getItem('gClientId') },
+    set clientId(v){ localStorage.setItem('gClientId',v) },
+    get apiKey(){ return localStorage.getItem('gApiKey') },
+    set apiKey(v){ localStorage.setItem('gApiKey',v) },
+    get fileId(){ return localStorage.getItem('noteFileId') },
+    set fileId(v){ localStorage.setItem('noteFileId',v) }
+  };
 
-    /* ==== localStorage helpers ==== */
-    const LS = {
-      get id()       { return localStorage.getItem('noteFileId'); },
-      set id(v)      { localStorage.setItem('noteFileId', v); },
-      get clientId() { return localStorage.getItem('gClientId'); },
-      set clientId(v){ localStorage.setItem('gClientId', v); }
-    };
+  // ==== Init ====
+  window.addEventListener('DOMContentLoaded',()=>{
+    // restore saved creds
+    if(LS.clientId) clientIn.value = LS.clientId;
+    if(LS.apiKey)   keyIn.value    = LS.apiKey;
+    updateSignState();
 
-    /* ==== Initialization ==== */
-    window.addEventListener('DOMContentLoaded', () => {
-      if (LS.clientId) clientIdInput.value = LS.clientId;
-      updateSignInState();
-      clientIdInput.addEventListener('input', () => {
-        LS.clientId = clientIdInput.value.trim();
-        updateSignInState();
-      });
-      signInBtn.addEventListener('click', signIn);
-      saveBtn.addEventListener('click', saveNote);
-      loadBtn.addEventListener('click', loadNote);
-      document.addEventListener('keydown', e => {
-        if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s') {
-          e.preventDefault(); saveNote();
-        }
-      });
+    clientIn.oninput = () => { LS.clientId = clientIn.value.trim(); updateSignState(); };
+    keyIn.oninput    = () => { LS.apiKey   = keyIn.value.trim();   updateSignState(); };
+
+    signBtn.onclick = handleSignIn;
+    saveBtn.onclick = saveNote;
+    loadBtn.onclick = loadNote;
+
+    // Ctrl/Cmd+S → Save
+    document.addEventListener('keydown',e=>{
+      if((e.ctrlKey||e.metaKey)&&e.key==='s'){
+        e.preventDefault(); saveNote();
+      }
     });
+  });
 
-    function updateSignInState(){
-      signInBtn.disabled = !clientIdInput.value.trim();
-    }
+  function updateSignState(){
+    signBtn.disabled = !(clientIn.value.trim() && keyIn.value.trim());
+  }
 
-    /* ==== Google OAuth ==== */
-    function signIn(){
-      if (accessToken) return;
-      if (!google?.accounts?.oauth2) {
-        alert('GIS SDK load failed');
-        return;
-      }
-      tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: clientIdInput.value.trim(),
-        scope: SCOPE,
-        callback: resp => {
-          if (resp.error) {
-            alert('Auth error: '+resp.error);
-            return;
-          }
-          accessToken = resp.access_token;
-          signInBtn.textContent = 'Signed in ✔';
-          signInBtn.disabled = true;
+  // ==== Sign-in & gapi init ====
+  async function handleSignIn(){
+    // 1) Google Identity token
+    tokenClient ??= google.accounts.oauth2.initTokenClient({
+      client_id: clientIn.value.trim(),
+      scope: 'https://www.googleapis.com/auth/drive.file',
+      callback: resp => {
+        accessToken = resp.access_token;
+        // 2) load gapi and init
+        gapi.load('client', async ()=>{
+          await gapi.client.init({
+            apiKey: keyIn.value.trim(),
+            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+          });
+          // set the OAuth token
+          gapi.client.setToken({ access_token: accessToken });
+          signBtn.textContent = 'Signed in ✔';
+          signBtn.disabled = true;
           saveBtn.disabled = loadBtn.disabled = false;
-        }
-      });
-      tokenClient.requestAccessToken({ prompt: 'consent' });
-    }
-
-    /* ==== Drive API helpers ==== */
-    async function authorizedFetch(url, opts={}){
-      if (!accessToken) { alert('Sign in first'); throw 0; }
-      opts.headers = { ...(opts.headers||{}), Authorization:`Bearer ${accessToken}` };
-      const res = await fetch(url, opts);
-      if (res.status===401) {
-        tokenClient.requestAccessToken({ prompt: '' });
-        throw new Error('Token expired');
-      }
-      return res;
-    }
-
-    async function getFileId(){
-      if (LS.id) return LS.id;
-      const q = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
-      const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&pageSize=1`;
-      const res = await authorizedFetch(url);
-      const { files } = await res.json();
-      if (files?.length){
-        LS.id = files[0].id;
-        return LS.id;
-      }
-      return null;
-    }
-
-    /* ==== Save & Load ==== */
-    async function saveNote(){
-      try {
-        const id = await getFileId();
-        const meta = { name: FILE_NAME, mimeType: 'text/plain' };
-        const boundary = '-------314159265358979323846';
-        const delim = '\\r\\n--'+boundary+'\\r\\n', close='\\r\\n--'+boundary+'--';
-        const body = delim+'Content-Type:application/json; charset=UTF-8\\r\\n\\r\\n'
-                  +JSON.stringify(meta)
-                  +delim+'Content-Type:text/plain\\r\\n\\r\\n'+noteArea.value+close;
-        const method = id?'PATCH':'POST';
-        const url = id
-          ?`https://www.googleapis.com/upload/drive/v3/files/${id}?uploadType=multipart`
-          :'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
-        const res = await authorizedFetch(url,{
-          method,
-          headers:{'Content-Type':`multipart/related; boundary=${boundary}`},
-          body
         });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        if (!id) LS.id=data.id;
-        alert('Saved ✔');
-      } catch(e){
-        console.error(e); alert('Save failed: '+e.message);
       }
-    }
+    });
+    tokenClient.requestAccessToken({ prompt:'consent' });
+  }
 
-    async function loadNote(){
-      try {
-        const id = await getFileId();
-        if (!id) { alert('No note—save one first!'); return; }
-        const res = await authorizedFetch(
-          `https://www.googleapis.com/drive/v3/files/${id}?alt=media`
-        );
-        if (!res.ok) throw new Error(await res.text());
-        noteArea.value = await res.text();
-        alert('Loaded ✔');
-      } catch(e){
-        console.error(e); alert('Load failed: '+e.message);
-      }
+  // ==== File helpers ====
+  async function ensureFileId(){
+    if(LS.fileId) return LS.fileId;
+    // list files named FILE_NAME
+    const res = await gapi.client.drive.files.list({
+      q: `name='${FILE_NAME}' and trashed=false`,
+      fields: 'files(id)',
+      pageSize: 1
+    });
+    const files = res.result.files;
+    if(files?.length){
+      LS.fileId = files[0].id;
+      return LS.fileId;
     }
+    return null;
+  }
+
+  // ==== Save ====
+  async function saveNote(){
+    try{
+      const id = await ensureFileId();
+      const resource = { name: FILE_NAME, mimeType: 'text/plain' };
+      const media    = { mimeType: 'text/plain', body: noteTA.value };
+
+      let resp;
+      if(!id){
+        resp = await gapi.client.drive.files.create({
+          resource, media, fields:'id'
+        });
+        LS.fileId = resp.result.id;
+      } else {
+        resp = await gapi.client.drive.files.update({
+          fileId: id, media, fields:'id'
+        });
+      }
+      alert('Saved ✔');
+    }catch(e){
+      console.error(e);
+      alert('Save error: '+e.message);
+    }
+  }
+
+  // ==== Load ====
+  async function loadNote(){
+    try{
+      const id = await ensureFileId();
+      if(!id){ alert('No file yet—hit Save first!'); return; }
+      // fetch raw content (alt=media)
+      const res = await gapi.client.drive.files.get({
+        fileId: id, alt: 'media'
+      });
+      noteTA.value = res.body; 
+      alert('Loaded ✔');
+    }catch(e){
+      console.error(e);
+      alert('Load error: '+e.message);
+    }
+  }
   </script>
 </body>
 </html>
