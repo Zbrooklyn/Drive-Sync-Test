@@ -1,221 +1,190 @@
 <!DOCTYPE html>
-<!--
-  Drive Sync Test – single-file HTML app
-  • Uses Google Identity Services + gapi client (token cached in localStorage).
-  • Saves / loads a single plain-text file named “Drive Sync Test.txt”.
-  • Autosave (debounce 1.5 s) + dark-mode + responsive layout.
--->
+<!--  Drive Sync Test (v2) — now with live log panel  -->
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Drive Sync Test</title>
-
-  <style>
-    :root{
-      --bg:#f5f7fa; --fg:#222; --accent:#1669f2;
-      --bg-dark:#1e1e1e; --fg-dark:#eee; --accent-dark:#4b8dff;
-    }
-    @media (prefers-color-scheme: dark){
-      :root{ --bg:var(--bg-dark); --fg:var(--fg-dark); --accent:var(--accent-dark); }
-    }
-
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    body{display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif}
-
-    header,footer{background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.05);padding:1rem}
-    @media(prefers-color-scheme:dark){header,footer{background:#2b2b2b}}
-    header{display:flex;gap:.5rem;align-items:center}
-
-    details>summary{cursor:pointer;font-weight:600}
-    input{flex:1;max-width:220px;padding:.5rem;border:1px solid #ccc;border-radius:4px}
-
-    textarea{flex:1;width:100%;padding:1rem;border:none;resize:none;outline:none;
-             font-size:1rem;line-height:1.4}
-
-    footer{display:flex;gap:1rem;justify-content:center}
-    button{padding:.75rem 1.5rem;border:none;border-radius:4px;background:var(--accent);
-           color:#fff;font-size:1rem;cursor:pointer;min-height:42px;min-width:90px}
-    button:disabled{opacity:.5;cursor:not-allowed}
-
-    dialog{border:none;border-radius:6px;padding:1rem;background:#fff;
-           box-shadow:0 2px 10px rgba(0,0,0,.25);max-width:92%;width:320px}
-    dialog::backdrop{background:rgba(0,0,0,.4)}
-    dialog p{margin-bottom:1rem}
-    dialog menu{display:flex;justify-content:flex-end}
-    dialog button{padding:.5rem 1rem;background:var(--accent);color:#fff}
-
-    @media (max-width:600px){
-      header,footer{padding:.5rem}
-      input{max-width:none;width:100%}
-      button{flex:1;padding:.5rem;font-size:.9rem}
-      textarea{font-size:.95rem}
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Drive Sync Test</title>
+<style>
+:root{--bg:#f5f7fa;--fg:#222;--accent:#1669f2;--logbg:#000;--logfg:#0f0;
+      --bg-d:#1e1e1e;--fg-d:#eee;--accent-d:#4b8dff;--logbg-d:#111;--logfg-d:#8f8}
+@media(prefers-color-scheme:dark){
+  :root{--bg:var(--bg-d);--fg:var(--fg-d);--accent:var(--accent-d);
+        --logbg:var(--logbg-d);--logfg:var(--logfg-d);}
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif}
+header,footer{background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.05);padding:1rem}
+@media(prefers-color-scheme:dark){header,footer{background:#2b2b2b}}
+header{display:flex;align-items:flex-start;gap:.5rem;flex-wrap:wrap}
+details>summary{cursor:pointer;font-weight:600}
+input{flex:1;max-width:220px;padding:.5rem;border:1px solid #ccc;border-radius:4px}
+textarea{flex:1;width:100%;padding:1rem;border:none;resize:none;outline:none;font-size:1rem;line-height:1.4}
+footer{display:flex;gap:1rem;justify-content:center}
+button{padding:.75rem 1.5rem;border:none;border-radius:4px;background:var(--accent);color:#fff;font-size:1rem;cursor:pointer;min-height:42px}
+button:disabled{opacity:.5;cursor:not-allowed}
+dialog{border:none;border-radius:6px;padding:1rem;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.25);max-width:92%;width:320px}
+dialog::backdrop{background:rgba(0,0,0,.4)}
+dialog p{margin-bottom:1rem} dialog menu{display:flex;justify-content:flex-end}
+dialog button{padding:.5rem 1rem;background:var(--accent);color:#fff}
+#logPane{background:var(--logbg);color:var(--logfg);font-family:monospace;font-size:.75rem;max-height:200px;overflow:auto;padding:.5rem;border-radius:4px;margin-top:.5rem}
+@media(max-width:600px){header,footer{padding:.5rem}input{max-width:none;width:100%}button{flex:1;padding:.5rem;font-size:.9rem}textarea{font-size:.95rem}}
+</style>
 </head>
 <body>
-  <header>
-    <details open>
-      <summary>Settings ⚙️</summary>
-      <label>Client ID:
-        <input id="clientId" placeholder="G-Client-ID">
-      </label>
-      <label>API Key:
-        <input id="apiKey" placeholder="G-API-Key">
-      </label>
-      <button id="signin" disabled>Sign in</button>
+<header>
+  <details open id="settings">
+    <summary>Settings ⚙️</summary>
+    <label>Client ID <input id="clientId" placeholder="G-Client-ID"></label>
+    <label>API Key <input id="apiKey" placeholder="G-API-Key"></label>
+    <button id="signin" disabled>Sign in</button>
+    <div style="flex-basis:100%"></div>
+    <details>
+      <summary>Log 📋</summary>
+      <pre id="logPane"></pre>
     </details>
-  </header>
+  </details>
+</header>
 
-  <textarea id="note" placeholder="Type your note…"></textarea>
+<textarea id="note" placeholder="Type your note…"></textarea>
 
-  <footer>
-    <button id="load" disabled>Load ⭳</button>
-    <button id="save" disabled>Save ⭱</button>
-  </footer>
+<footer>
+  <button id="load" disabled>Load ⭳</button>
+  <button id="save" disabled>Save ⭱</button>
+</footer>
 
-  <!-- Message dialog -->
-  <dialog id="msgDlg"><p id="msgTxt"></p><menu><button id="msgOk">OK</button></menu></dialog>
+<dialog id="msgDlg"><p id="msgTxt"></p><menu><button id="msgOk">OK</button></menu></dialog>
 
-  <!-- Google scripts -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://apis.google.com/js/api.js" async defer></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://apis.google.com/js/api.js" async defer></script>
 
-  <script type="module">
-    /* ---------- constants & state ---------- */
-    const FILE_NAME = 'Drive Sync Test.txt';
-    let tokenClient, accessToken = null;
+<script type="module">
+const FILE_NAME='Drive Sync Test.txt';           // <- requested filename
+let tokenClient, accessToken=null;
 
-    /* ---------- helpers ---------- */
-    const $ = id => document.getElementById(id);
-    function show(msg){ $('msgTxt').textContent = msg; $('msgDlg').showModal(); }
-    $('msgOk').onclick = ()=>$('msgDlg').close();
+/* ---------- DOM helpers ---------- */
+const $=id=>document.getElementById(id);
+const logPane=$('logPane');
+function log(msg){
+  const line=`[${new Date().toLocaleTimeString()}] ${msg}`;
+  console.log(line);
+  logPane.textContent+=line+"\n";
+  logPane.scrollTop=logPane.scrollHeight;
+}
+function show(msg){$('msgTxt').textContent=msg;$('msgDlg').showModal();}
+$('msgOk').onclick=()=>$('msgDlg').close();
 
-    // debounce helper  :contentReference[oaicite:0]{index=0}
-    const debounce = (fn,ms)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; };
+/* ---------- storage ---------- */
+const LS={
+  get c(){return localStorage.getItem('gCID')}, set c(v){localStorage.setItem('gCID',v)},
+  get k(){return localStorage.getItem('gAPI')}, set k(v){localStorage.setItem('gAPI',v)},
+  get t(){return localStorage.getItem('gTok')}, set t(v){localStorage.setItem('gTok',v)},
+  get f(){return localStorage.getItem('gFID')}, set f(v){localStorage.setItem('gFID',v)}
+};
 
-    /* ---------- localStorage wrappers ---------- */
-    const LS = {
-      get client(){ return localStorage.getItem('gClientId'); },
-      set client(v){ localStorage.setItem('gClientId',v); },
-      get key(){ return localStorage.getItem('gApiKey'); },
-      set key(v){ localStorage.setItem('gApiKey',v); },
-      get token(){ return localStorage.getItem('gToken'); },
-      set token(v){ localStorage.setItem('gToken',v); },
-      get fileId(){ return localStorage.getItem('gFileId'); },
-      set fileId(v){ localStorage.setItem('gFileId',v); }
-    };
+/* ---------- init UI ---------- */
+window.addEventListener('DOMContentLoaded',async()=>{
+  if(LS.c) $('clientId').value=LS.c;
+  if(LS.k) $('apiKey').value=LS.k;
+  updateSigninBtn();
+  $('clientId').oninput=()=>{LS.c=$('clientId').value.trim();updateSigninBtn();}
+  $('apiKey').oninput =()=>{LS.k=$('apiKey').value.trim();updateSigninBtn();}
+  $('signin').onclick=signIn;
+  $('save').onclick =()=>saveNote(false);
+  $('load').onclick =loadNote;
+  $('note').addEventListener('input',debounce(()=>saveNote(true),1500));
+  document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();saveNote(false);}});
 
-    /* ---------- UI init ---------- */
-    window.addEventListener('DOMContentLoaded', async () => {
-      if (LS.client) $('clientId').value = LS.client;
-      if (LS.key)    $('apiKey').value   = LS.key;
-      updateSigninBtn();
-
-      $('clientId').oninput = ()=>{ LS.client = $('clientId').value.trim(); updateSigninBtn(); };
-      $('apiKey').oninput   = ()=>{ LS.key    = $('apiKey').value.trim();   updateSigninBtn(); };
-
-      $('signin').onclick = signIn;
-      $('save').onclick   = ()=>saveNote(false);
-      $('load').onclick   = loadNote;
-
-      // autosave on typing after 1.5 s pause
-      $('note').addEventListener('input', debounce(()=>saveNote(true),1500));
-
-      document.addEventListener('keydown', e=>{
-        if((e.ctrlKey||e.metaKey)&&e.key==='s'){ e.preventDefault(); saveNote(false); }
-      });
-
-      // session restore
-      if (LS.token) {
-        await gapi.load('client', async () => {
-          await gapi.client.init({
-            apiKey: LS.key,
-            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
-          });
-          gapi.client.setToken({ access_token: LS.token });
-          accessToken = LS.token;
-          afterSignin();
-          show('Session restored');
-        });
-      }
+  if(LS.t){
+    await gapi.load('client',async()=>{
+      await gapi.client.init({apiKey:LS.k,discoveryDocs:['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']});
+      gapi.client.setToken({access_token:LS.t});
+      accessToken=LS.t;
+      afterSignin();
+      log('Session restored with cached token');
+      show('Session restored');
     });
+  }
+});
+function updateSigninBtn(){ $('signin').disabled=!($('clientId').value&&$('apiKey').value); }
 
-    function updateSigninBtn(){
-      $('signin').disabled = !($('clientId').value && $('apiKey').value);
-    }
-
-    /* ---------- sign-in flow ---------- */
-    function signIn(){
-      tokenClient ??= google.accounts.oauth2.initTokenClient({
-        client_id: $('clientId').value.trim(),
-        scope: 'https://www.googleapis.com/auth/drive.file',
-        callback: async resp => {
-          if (resp.error) { show('Auth error: '+resp.error); return; }
-          accessToken = resp.access_token;
-          LS.token = accessToken;
-          await gapi.load('client', async () => {
-            await gapi.client.init({
-              apiKey: LS.key,
-              discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
-            });
-            gapi.client.setToken({ access_token: accessToken });
-            afterSignin();
-            show('Signed in');
-          });
-        }
+/* ---------- sign-in ---------- */
+function signIn(){
+  tokenClient??=google.accounts.oauth2.initTokenClient({
+    client_id:$('clientId').value.trim(),
+    scope:'https://www.googleapis.com/auth/drive.file',
+    callback:async resp=>{
+      if(resp.error){log('Auth error '+resp.error);return show('Auth error: '+resp.error);}
+      accessToken=resp.access_token; LS.t=accessToken;
+      log('Received access_token');
+      await gapi.load('client',async()=>{
+        await gapi.client.init({apiKey:LS.k,discoveryDocs:['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']});
+        gapi.client.setToken({access_token:accessToken});
+        afterSignin(); show('Signed in');
       });
-      tokenClient.requestAccessToken({ prompt: 'consent' });
     }
+  });
+  tokenClient.requestAccessToken({prompt:'consent'});
+}
+function afterSignin(){ $('signin').disabled=true; $('save').disabled=$('load').disabled=false; }
 
-    function afterSignin(){
-      $('signin').disabled = true;
-      $('save').disabled = $('load').disabled = false;
-    }
+/* ---------- Drive helper with logging ---------- */
+async function driveCall(label,promise){
+  log(`⏳ ${label} – sending request`);
+  const t0=performance.now();
+  try{
+    const res=await promise;
+    log(`✅ ${label} (${(performance.now()-t0).toFixed(0)} ms) status:${res.status||res.result?.status||'OK'}`);
+    if(res.body) log(`↙ body: ${res.body.slice(0,60)}…`);
+    return res;
+  }catch(e){
+    log(`❌ ${label} error: ${e.status||'?'}/${e.message||e.toString()}`);
+    throw e;
+  }
+}
 
-    /* ---------- Drive helpers ---------- */
-    async function ensureFileId(){
-      if (LS.fileId) return LS.fileId;
-      const res = await gapi.client.drive.files.list({
-        q: `name='${FILE_NAME}' and trashed=false`,
-        fields: 'files(id)',
-        pageSize: 1
-      });
-      const files = res.result.files || [];
-      if (files.length){ LS.fileId = files[0].id; return LS.fileId; }
-      return null;
-    }
+/* ---------- ensure / locate file ---------- */
+async function ensureFileId(){
+  if(LS.f) return LS.f;
+  const res=await driveCall('files.list',
+      gapi.client.drive.files.list({q:`name='${FILE_NAME}' and trashed=false`,fields:'files(id)',pageSize:1}));
+  if(res.result.files?.length){LS.f=res.result.files[0].id;return LS.f;}
+  return null;
+}
 
-    /* ---------- Save ---------- */
-    async function saveNote(silent){
-      try{
-        const id = await ensureFileId();
-        const media = { mimeType:'text/plain', body:$('note').value };
-        if (!id){
-          const resp = await gapi.client.drive.files.create({
-            resource:{ name:FILE_NAME, mimeType:'text/plain' },
-            media, fields:'id'
-          }); LS.fileId = resp.result.id;
-        } else {
-          await gapi.client.drive.files.update({ fileId:id, media, fields:'id' });
-        }
-        if (!silent) show('Saved ✔');
-      }catch(e){ console.error(e); show('Save error: '+e.message); }
+/* ---------- save ---------- */
+async function saveNote(silent){
+  if(!accessToken){return show('Sign in first');}
+  try{
+    const id=await ensureFileId();
+    const media={mimeType:'text/plain',body:$('note').value};
+    if(!id){
+      const resp=await driveCall('files.create',
+        gapi.client.drive.files.create({resource:{name:FILE_NAME,mimeType:'text/plain'},media,fields:'id'}));
+      LS.f=resp.result.id;
+    }else{
+      await driveCall('files.update',
+        gapi.client.drive.files.update({fileId:id,media,fields:'id'}));
     }
+    if(!silent) show('Saved ✔');
+  }catch(e){show('Save error: '+e.message);}
+}
 
-    /* ---------- Load ---------- */
-    async function loadNote(){
-      try{
-        let id = await ensureFileId();
-        if (!id){ show('No file yet — save first'); return; }
-        const res = await gapi.client.drive.files.get({ fileId:id, alt:'media' });
-        $('note').value = res.body || res.result;
-        show('Loaded ✔');
-      }catch(e){
-        if (e.status === 404){ LS.fileId = null; return loadNote(); }
-        console.error(e); show('Load error: '+(e.message||'unknown'));
-      }
-    }
-  </script>
+/* ---------- load ---------- */
+async function loadNote(){
+  if(!accessToken){return show('Sign in first');}
+  try{
+    let id=await ensureFileId();
+    if(!id){return show('No file yet — save first');}
+    const res=await driveCall('files.get',
+      gapi.client.drive.files.get({fileId:id,alt:'media'}));
+    $('note').value=res.body||res.result||'';
+    show('Loaded ✔');
+  }catch(e){
+    if(e.status===404){LS.f=null;return loadNote();}
+    show('Load error: '+e.message);
+  }
+}
+</script>
 </body>
 </html>
