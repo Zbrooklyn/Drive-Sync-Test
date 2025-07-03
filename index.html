@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Minimal Drive .txt creator — single-file HTML -->
+<!-- Drive Create Test – all feedback in Log pane (no pop-ups) -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -15,8 +15,7 @@ input{flex:1;max-width:260px;padding:.5rem;border:1px solid #ccc;border-radius:4
 button{padding:.75rem 1.5rem;border:none;border-radius:4px;background:var(--accent);color:#fff;font-size:1rem;cursor:pointer}
 button:disabled{opacity:.5;cursor:not-allowed}
 pre{flex:1;background:#000;color:#0f0;font-family:monospace;font-size:.75rem;margin:0;padding:.5rem;overflow:auto}
-dialog{border:none;border-radius:6px;padding:1rem;background:#fff;box-shadow:0 2px 10px #0004;width:300px}
-dialog::backdrop{background:#0007}
+pre .info{color:#0af} pre .err{color:#f44} pre .ok{color:#0f0}
 </style>
 </head>
 <body>
@@ -29,29 +28,35 @@ dialog::backdrop{background:#0007}
   </details>
 </header>
 
-<!-- Single action -->
 <footer style="display:flex;gap:1rem;justify-content:center">
   <button id="create" disabled>Create .txt</button>
 </footer>
 
-<!-- Live log -->
 <pre id="log"></pre>
 
-<!-- Dialog -->
-<dialog id="dlg"><p id="msg"></p><button onclick="this.closest('dialog').close()">OK</button></dialog>
-
-<!-- Google SDKs -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://apis.google.com/js/api.js" async defer></script>
 
 <script type="module">
 const FILE_NAME='Drive Sync Test.txt';
 const $=id=>document.getElementById(id);
-const log=s=>{const t=`[${new Date().toLocaleTimeString()}] ${s}`;console.log(t);$('log').textContent+=t+"\n";}
+const logPane=$('log');
+
+function log(msg,cls=''){                      // cls = '', 'info', 'err', 'ok'
+  const stamp=new Date().toLocaleTimeString();
+  const span=`<span class="${cls}">[${stamp}] ${msg}</span>\n`;
+  logPane.insertAdjacentHTML('beforeend',span);
+  logPane.scrollTop=logPane.scrollHeight;
+  console[(cls==='err'?'error':'log')](msg);
+}
+const info=m=>log(m,'info');  const ok=m=>log(m,'ok');  const error=m=>log(m,'err');
+
 const LS={get c(){return localStorage.getItem('cid')},set c(v){localStorage.setItem('cid',v)},
           get k(){return localStorage.getItem('key')},set k(v){localStorage.setItem('key',v)}};
-let tokenClient, accessToken=null;
 
+let tokenClient,accessToken=null;
+
+/* ---------- init ---------- */
 window.addEventListener('DOMContentLoaded',()=>{
   if(LS.c) $('cid').value=LS.c;
   if(LS.k) $('key').value=LS.k;
@@ -61,8 +66,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   $('signin').onclick=signin;
   $('create').onclick=createTxt;
 });
-
-function update(){ $('signin').disabled=!($('cid').value&&$('key').value); }
+const update=()=>$('signin').disabled=!($('cid').value&&$('key').value);
 
 function signin(){
   tokenClient??=google.accounts.oauth2.initTokenClient({
@@ -70,13 +74,17 @@ function signin(){
     scope:'https://www.googleapis.com/auth/drive.file',
     callback:async r=>{
       if(r.error){return error('Auth error: '+r.error);}
-      accessToken=r.access_token; log('access_token acquired');
-      await gapi.load('client',async()=>{
-        await gapi.client.init({apiKey:$('key').value.trim(),
-          discoveryDocs:['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']});
-        gapi.client.setToken({access_token});
-        $('signin').disabled=true; $('create').disabled=false;
-        info('Signed in ✔');
+      accessToken=r.access_token; ok('access_token acquired');
+      await gapi.load('client',async ()=>{
+        try{
+          await gapi.client.init({
+            apiKey:$('key').value.trim(),
+            discoveryDocs:['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+          });
+          gapi.client.setToken({access_token});
+          $('signin').disabled=true; $('create').disabled=false;
+          info('Signed in – ready');
+        }catch(e){error('gapi init failed: '+e.message);}
       });
     }
   });
@@ -85,23 +93,17 @@ function signin(){
 
 async function createTxt(){
   if(!accessToken)return;
-  const content='Hello, Drive! '+new Date().toLocaleString();
-  const media={mimeType:'text/plain',body:content};
-  log('⏳ files.create …');
+  const body='Hello, Drive! '+new Date().toLocaleString();
+  ok('⏳ files.create');
   try{
     const resp=await gapi.client.drive.files.create({
       resource:{name:FILE_NAME,mimeType:'text/plain'},
-      media, fields:'id'
+      media:{mimeType:'text/plain',body},
+      fields:'id'
     });
-    log(`✅ files.create id:${resp.result.id} bytes:${content.length}`);
-    info('File created in My Drive root');
-  }catch(e){
-    error('Create failed: '+(e.message||e));
-  }
+    ok(`✅ files.create id:${resp.result.id} bytes:${body.length}`);
+  }catch(e){error('Create failed: '+(e.message||e));}
 }
-
-function info(m){$('msg').textContent=m;$('dlg').showModal();}
-function error(m){log('❌ '+m);$('msg').textContent=m;$('dlg').showModal();}
 </script>
 </body>
 </html>
