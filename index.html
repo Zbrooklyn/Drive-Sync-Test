@@ -1,21 +1,27 @@
 <!DOCTYPE html>
-<!-- Drive Create Test – all feedback in Log pane (no pop-ups) -->
+<!--
+  Drive Create Test  ▸  minimal proof-of-concept
+  • Sign in → single button uploads “Drive Sync Test.txt” to My Drive root.
+  • All status / errors logged in the green Log pane (no pop-ups).
+-->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Drive Create Test</title>
 <style>
-:root{--bg:#f5f7fa;--fg:#222;--accent:#1669f2}
-body{display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;margin:0}
-header,footer{padding:1rem;background:#fff;box-shadow:0 2px 4px #0002}
-header{display:flex;gap:.5rem;flex-wrap:wrap}
-details>summary{cursor:pointer;font-weight:600}
-input{flex:1;max-width:260px;padding:.5rem;border:1px solid #ccc;border-radius:4px}
-button{padding:.75rem 1.5rem;border:none;border-radius:4px;background:var(--accent);color:#fff;font-size:1rem;cursor:pointer}
-button:disabled{opacity:.5;cursor:not-allowed}
-pre{flex:1;background:#000;color:#0f0;font-family:monospace;font-size:.75rem;margin:0;padding:.5rem;overflow:auto}
-pre .info{color:#0af} pre .err{color:#f44} pre .ok{color:#0f0}
+  :root{--bg:#f5f7fa;--fg:#222;--accent:#1669f2}
+  @media (prefers-color-scheme: dark){ :root{--bg:#1e1e1e;--fg:#eee;--accent:#4b8dff} }
+  body{display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;margin:0}
+  header,footer{padding:1rem;background:#fff;box-shadow:0 2px 4px #0002}
+  @media (prefers-color-scheme: dark){header,footer{background:#2b2b2b}}
+  header{display:flex;gap:.5rem;flex-wrap:wrap}
+  details>summary{cursor:pointer;font-weight:600}
+  input{flex:1;max-width:260px;padding:.5rem;border:1px solid #ccc;border-radius:4px}
+  button{padding:.75rem 1.5rem;border:none;border-radius:4px;background:var(--accent);color:#fff;font-size:1rem;cursor:pointer;min-height:42px;min-width:90px}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  pre{flex:1;background:#000;color:#0f0;font-family:monospace;font-size:.75rem;margin:0;padding:.5rem;overflow:auto}
+  pre .info{color:#08f} pre .ok{color:#0f0} pre .err{color:#f44}
 </style>
 </head>
 <body>
@@ -23,86 +29,114 @@ pre .info{color:#0af} pre .err{color:#f44} pre .ok{color:#0f0}
   <details open>
     <summary>Settings ⚙️</summary>
     <label>Client ID <input id="cid" placeholder="Google OAuth Client ID"></label>
-    <label>API Key <input id="key" placeholder="Drive API Key"></label>
+    <label>API Key   <input id="key" placeholder="Drive API Key"></label>
     <button id="signin" disabled>Sign in</button>
   </details>
 </header>
 
-<footer style="display:flex;gap:1rem;justify-content:center">
+<footer style="display:flex;justify-content:center;padding:1.5rem">
   <button id="create" disabled>Create .txt</button>
 </footer>
 
 <pre id="log"></pre>
 
+<!-- Google SDKs -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://apis.google.com/js/api.js" async defer></script>
 
 <script type="module">
-const FILE_NAME='Drive Sync Test.txt';
-const $=id=>document.getElementById(id);
-const logPane=$('log');
-
-function log(msg,cls=''){                      // cls = '', 'info', 'err', 'ok'
-  const stamp=new Date().toLocaleTimeString();
-  const span=`<span class="${cls}">[${stamp}] ${msg}</span>\n`;
-  logPane.insertAdjacentHTML('beforeend',span);
-  logPane.scrollTop=logPane.scrollHeight;
-  console[(cls==='err'?'error':'log')](msg);
+/* ========= helpers ========= */
+const FILE_NAME = 'Drive Sync Test.txt';
+const $ = id => document.getElementById(id);
+const logEl = $('log');
+function log(msg, cls = '') {
+  const stamp = `[${new Date().toLocaleTimeString()}] `;
+  const span = `<span class="${cls}">${stamp}${msg}</span>\n`;
+  logEl.insertAdjacentHTML('beforeend', span);
+  logEl.scrollTop = logEl.scrollHeight;
+  console[(cls === 'err' ? 'error' : 'log')](msg);
 }
-const info=m=>log(m,'info');  const ok=m=>log(m,'ok');  const error=m=>log(m,'err');
+const info  = m => log(m, 'info');
+const ok    = m => log(m, 'ok');
+const error = m => log(m, 'err');
 
-const LS={get c(){return localStorage.getItem('cid')},set c(v){localStorage.setItem('cid',v)},
-          get k(){return localStorage.getItem('key')},set k(v){localStorage.setItem('key',v)}};
+/* ========= localStorage for creds ========= */
+const LS = {
+  get cid(){ return localStorage.getItem('cid'); },
+  set cid(v){ localStorage.setItem('cid', v); },
+  get key(){ return localStorage.getItem('key'); },
+  set key(v){ localStorage.setItem('key', v); }
+};
 
-let tokenClient,accessToken=null;
+let tokenClient, accessToken = null;
 
-/* ---------- init ---------- */
-window.addEventListener('DOMContentLoaded',()=>{
-  if(LS.c) $('cid').value=LS.c;
-  if(LS.k) $('key').value=LS.k;
-  update();
-  $('cid').oninput=()=>{LS.c=$('cid').value.trim();update()};
-  $('key').oninput=()=>{LS.k=$('key').value.trim();update()};
-  $('signin').onclick=signin;
-  $('create').onclick=createTxt;
+/* ========= init UI ========= */
+window.addEventListener('DOMContentLoaded', () => {
+  if (LS.cid) $('cid').value = LS.cid;
+  if (LS.key) $('key').value = LS.key;
+  updateSigninButton();
+
+  $('cid').oninput = () => { LS.cid = $('cid').value.trim(); updateSigninButton(); };
+  $('key').oninput = () => { LS.key = $('key').value.trim(); updateSigninButton(); };
+
+  $('signin').onclick = handleSignIn;
+  $('create').onclick = createTxt;
 });
-const update=()=>$('signin').disabled=!($('cid').value&&$('key').value);
 
-function signin(){
-  tokenClient??=google.accounts.oauth2.initTokenClient({
-    client_id:$('cid').value.trim(),
-    scope:'https://www.googleapis.com/auth/drive.file',
-    callback:async r=>{
-      if(r.error){return error('Auth error: '+r.error);}
-      accessToken=r.access_token; ok('access_token acquired');
-      await gapi.load('client',async ()=>{
-        try{
-          await gapi.client.init({
-            apiKey:$('key').value.trim(),
-            discoveryDocs:['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
-          });
-          gapi.client.setToken({access_token});
-          $('signin').disabled=true; $('create').disabled=false;
-          info('Signed in – ready');
-        }catch(e){error('gapi init failed: '+e.message);}
-      });
+function updateSigninButton() {
+  $('signin').disabled = !($('cid').value && $('key').value);
+}
+
+/* ========= OAuth sign-in ========= */
+function handleSignIn() {
+  tokenClient ??= google.accounts.oauth2.initTokenClient({
+    client_id: $('cid').value.trim(),
+    scope: 'https://www.googleapis.com/auth/drive.file',
+    callback: async resp => {
+      if (resp.error) { return error('Auth error: ' + resp.error); }
+      accessToken = resp.access_token; ok('access_token acquired');
+
+      try {
+        await gapi.load('client');
+        await gapi.client.init({
+          apiKey: $('key').value.trim(),
+          discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+        });
+        gapi.client.setToken({ access_token: accessToken });   // <- fixed
+        $('signin').disabled = true;
+        $('create').disabled = false;
+        info('Signed in – ready to create file');
+      } catch (e) {
+        error('gapi init failed: ' + e.message);
+      }
     }
   });
-  tokenClient.requestAccessToken({prompt:'consent'});
+  tokenClient.requestAccessToken({ prompt: 'consent' });
 }
 
-async function createTxt(){
-  if(!accessToken)return;
-  const body='Hello, Drive! '+new Date().toLocaleString();
-  ok('⏳ files.create');
-  try{
-    const resp=await gapi.client.drive.files.create({
-      resource:{name:FILE_NAME,mimeType:'text/plain'},
-      media:{mimeType:'text/plain',body},
-      fields:'id'
+/* ========= Create the .txt file ========= */
+async function createTxt() {
+  if (!accessToken) { return; }
+
+  const content = 'Hello, Drive! ' + new Date().toLocaleString();
+  ok('⏳ files.create …');
+
+  try {
+    const resp = await gapi.client.drive.files.create({
+      resource: { name: FILE_NAME, mimeType: 'text/plain' },
+      media:    { mimeType: 'text/plain', body: content },
+      fields: 'id'
     });
-    ok(`✅ files.create id:${resp.result.id} bytes:${body.length}`);
-  }catch(e){error('Create failed: '+(e.message||e));}
+    ok(`✅ files.create id:${resp.result.id} bytes:${content.length}`);
+  } catch (e) {
+    // Detect token expiry (rare in this POC) and retry once silently
+    if (e.status === 401 && tokenClient) {
+      info('Token expired – refreshing silently');
+      tokenClient.requestAccessToken({ prompt: '' });
+      return createTxt();     // retry once
+    }
+    error('Create failed: ' + (e.message || e));
+  }
 }
 </script>
 </body>
