@@ -1,15 +1,9 @@
 <!DOCTYPE html>
-<!--
-  All-in-One Drive Note POC • 2025-07-03
-  Usage:
-    1. Paste your Google OAuth Client ID + API Key in Settings.
-    2. Sign in → Save ⭱ → Load ⭳ to sync quick-note.txt in Drive.
--->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Quick-Note ⇆ Google Drive</title>
+  <title>Quick-Note ⇆ Google Drive (Cached + Dialog)</title>
   <style>
     :root{--bg:#f5f7fa;--fg:#222;--accent:#1669f2}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -19,14 +13,19 @@
     header,footer{background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.05);padding:1rem}
     header{display:flex;gap:.5rem;align-items:center}
     details>summary{cursor:pointer;font-weight:600}
-    input,button{font-size:1rem}
     input{flex:1;max-width:200px;padding:.5rem;border:1px solid #ccc;border-radius:4px}
     textarea{flex:1;width:100%;padding:1rem;border:none;resize:none;outline:none;
              font-size:1rem;line-height:1.4}
     footer{display:flex;gap:1rem;justify-content:center}
     button{padding:.75rem 1.5rem;border:none;border-radius:4px;
-           background:var(--accent);color:#fff;cursor:pointer}
+           background:var(--accent);color:#fff;cursor:pointer;font-size:1rem}
     button:disabled{opacity:.5;cursor:not-allowed}
+    dialog{border:none;border-radius:6px;padding:1rem;background:#fff;
+           box-shadow:0 2px 10px rgba(0,0,0,.2);max-width:90%;width:300px}
+    dialog::backdrop{background:rgba(0,0,0,.4)}
+    dialog p{margin-bottom:1rem}
+    dialog menu{display:flex;justify-content:flex-end}
+    dialog button{padding:.5rem 1rem;background:var(--accent);color:#fff}
     @media(max-width:600px){
       header,footer{padding:.5rem}
       input{max-width:none;width:100%}
@@ -57,39 +56,56 @@
     <button id="save" disabled>Save ⭱</button>
   </footer>
 
-  <!-- 1) Google Identity Services -->
+  <!-- Message dialog -->
+  <dialog id="msgDialog">
+    <p id="msgText"></p>
+    <menu>
+      <button id="closeDialog">OK</button>
+    </menu>
+  </dialog>
+
+  <!-- GIS + gapi -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <!-- 2) Google API Client -->
   <script src="https://apis.google.com/js/api.js" async defer></script>
 
   <script type="module">
-  // ==== Config & state ====
   const FILE_NAME = 'quick-note.txt';
-  let tokenClient, accessToken, fileId;
-  
-  // ==== DOM refs ====
-  const clientIn = document.getElementById('clientId');
-  const keyIn    = document.getElementById('apiKey');
-  const signBtn  = document.getElementById('signin');
-  const loadBtn  = document.getElementById('load');
-  const saveBtn  = document.getElementById('save');
-  const noteTA   = document.getElementById('note');
+  let tokenClient, accessToken;
 
-  // ==== localStorage helpers ====
+  // DOM refs
+  const clientIn    = document.getElementById('clientId');
+  const keyIn       = document.getElementById('apiKey');
+  const signBtn     = document.getElementById('signin');
+  const loadBtn     = document.getElementById('load');
+  const saveBtn     = document.getElementById('save');
+  const noteTA      = document.getElementById('note');
+  const dialogEl    = document.getElementById('msgDialog');
+  const dialogText  = document.getElementById('msgText');
+  const closeDialog = document.getElementById('closeDialog');
+
+  // localStorage helpers
   const LS = {
     get clientId(){ return localStorage.getItem('gClientId') },
-    set clientId(v){ localStorage.setItem('gClientId',v) },
+    set clientId(v){ localStorage.setItem('gClientId', v) },
     get apiKey(){ return localStorage.getItem('gApiKey') },
-    set apiKey(v){ localStorage.setItem('gApiKey',v) },
+    set apiKey(v){ localStorage.setItem('gApiKey', v) },
+    get token(){ return localStorage.getItem('gAccessToken') },
+    set token(v){ localStorage.setItem('gAccessToken', v) },
     get fileId(){ return localStorage.getItem('noteFileId') },
-    set fileId(v){ localStorage.setItem('noteFileId',v) }
+    set fileId(v){ localStorage.setItem('noteFileId', v) }
   };
 
-  // ==== Init ====
-  window.addEventListener('DOMContentLoaded',()=>{
-    // restore saved creds
-    if(LS.clientId) clientIn.value = LS.clientId;
-    if(LS.apiKey)   keyIn.value    = LS.apiKey;
+  // Show message in dialog
+  function showMessage(msg) {
+    dialogText.textContent = msg;
+    dialogEl.showModal();
+  }
+  closeDialog.onclick = () => dialogEl.close();
+
+  // Init UI & restore token if cached
+  window.addEventListener('DOMContentLoaded', async () => {
+    if (LS.clientId) clientIn.value = LS.clientId;
+    if (LS.apiKey)   keyIn.value    = LS.apiKey;
     updateSignState();
 
     clientIn.oninput = () => { LS.clientId = clientIn.value.trim(); updateSignState(); };
@@ -99,99 +115,112 @@
     saveBtn.onclick = saveNote;
     loadBtn.onclick = loadNote;
 
-    // Ctrl/Cmd+S → Save
-    document.addEventListener('keydown',e=>{
-      if((e.ctrlKey||e.metaKey)&&e.key==='s'){
-        e.preventDefault(); saveNote();
+    document.addEventListener('keydown', e => {
+      if ((e.ctrlKey||e.metaKey) && e.key==='s') {
+        e.preventDefault();
+        saveNote();
       }
     });
+
+    const cached = LS.token;
+    if (cached) {
+      await gapi.load('client', async () => {
+        await gapi.client.init({
+          apiKey: LS.apiKey,
+          discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+        });
+        gapi.client.setToken({ access_token: cached });
+        accessToken = cached;
+        signBtn.textContent = 'Signed in ✔';
+        enableUI();
+        showMessage('Session restored');
+      });
+    }
   });
 
-  function updateSignState(){
+  function updateSignState() {
     signBtn.disabled = !(clientIn.value.trim() && keyIn.value.trim());
   }
 
-  // ==== Sign-in & gapi init ====
-  async function handleSignIn(){
-    // 1) Google Identity token
+  // Sign in and cache token
+  async function handleSignIn() {
     tokenClient ??= google.accounts.oauth2.initTokenClient({
       client_id: clientIn.value.trim(),
       scope: 'https://www.googleapis.com/auth/drive.file',
-      callback: resp => {
+      callback: async resp => {
+        if (resp.error) return showMessage('Auth error: ' + resp.error);
         accessToken = resp.access_token;
-        // 2) load gapi and init
-        gapi.load('client', async ()=>{
+        LS.token = accessToken;
+        await gapi.load('client', async () => {
           await gapi.client.init({
-            apiKey: keyIn.value.trim(),
+            apiKey: LS.apiKey,
             discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
           });
-          // set the OAuth token
-          gapi.client.setToken({ access_token: accessToken });
+          gapi.client.setToken({ access_token });
           signBtn.textContent = 'Signed in ✔';
-          signBtn.disabled = true;
-          saveBtn.disabled = loadBtn.disabled = false;
+          enableUI();
+          showMessage('Signed in successfully');
         });
       }
     });
-    tokenClient.requestAccessToken({ prompt:'consent' });
+    tokenClient.requestAccessToken({ prompt: 'consent' });
   }
 
-  // ==== File helpers ====
-  async function ensureFileId(){
-    if(LS.fileId) return LS.fileId;
-    // list files named FILE_NAME
+  function enableUI() {
+    signBtn.disabled = true;
+    saveBtn.disabled = loadBtn.disabled = false;
+  }
+
+  // Ensure or create file
+  async function ensureFileId() {
+    if (LS.fileId) return LS.fileId;
     const res = await gapi.client.drive.files.list({
       q: `name='${FILE_NAME}' and trashed=false`,
       fields: 'files(id)',
       pageSize: 1
     });
-    const files = res.result.files;
-    if(files?.length){
+    const files = res.result.files || [];
+    if (files.length) {
       LS.fileId = files[0].id;
       return LS.fileId;
     }
     return null;
   }
 
-  // ==== Save ====
-  async function saveNote(){
-    try{
+  // Save note
+  async function saveNote() {
+    try {
       const id = await ensureFileId();
       const resource = { name: FILE_NAME, mimeType: 'text/plain' };
       const media    = { mimeType: 'text/plain', body: noteTA.value };
-
       let resp;
-      if(!id){
-        resp = await gapi.client.drive.files.create({
-          resource, media, fields:'id'
-        });
+      if (!id) {
+        resp = await gapi.client.drive.files.create({ resource, media, fields:'id' });
         LS.fileId = resp.result.id;
       } else {
-        resp = await gapi.client.drive.files.update({
-          fileId: id, media, fields:'id'
-        });
+        resp = await gapi.client.drive.files.update({ fileId: id, media, fields:'id' });
       }
-      alert('Saved ✔');
-    }catch(e){
+      showMessage('Saved ✔');
+    } catch (e) {
       console.error(e);
-      alert('Save error: '+e.message);
+      showMessage('Save error: ' + e.message);
     }
   }
 
-  // ==== Load ====
-  async function loadNote(){
-    try{
+  // Load note
+  async function loadNote() {
+    try {
       const id = await ensureFileId();
-      if(!id){ alert('No file yet—hit Save first!'); return; }
-      // fetch raw content (alt=media)
-      const res = await gapi.client.drive.files.get({
-        fileId: id, alt: 'media'
-      });
-      noteTA.value = res.body; 
-      alert('Loaded ✔');
-    }catch(e){
+      if (!id) {
+        showMessage('No file yet—Save first!');
+        return;
+      }
+      const res = await gapi.client.drive.files.get({ fileId: id, alt: 'media' });
+      noteTA.value = res.body;
+      showMessage('Loaded ✔');
+    } catch (e) {
       console.error(e);
-      alert('Load error: '+e.message);
+      showMessage('Load error: ' + e.message);
     }
   }
   </script>
