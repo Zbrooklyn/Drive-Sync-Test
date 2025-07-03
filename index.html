@@ -1,143 +1,190 @@
 <!DOCTYPE html>
 <!--
-  Drive Create Test  ▸  minimal proof-of-concept
-  • Sign in → single button uploads “Drive Sync Test.txt” to My Drive root.
-  • All status / errors logged in the green Log pane (no pop-ups).
+  Drive Create Test – fully fixed POC
+  • Sign in → one button uploads “Drive Sync Test.txt” to My Drive root.
+  • Order-of-load, gapi.init, and token refresh fixed.
+  • All status logged in the bottom pane; no pop-ups.
 -->
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Drive Create Test</title>
-<style>
-  :root{--bg:#f5f7fa;--fg:#222;--accent:#1669f2}
-  @media (prefers-color-scheme: dark){ :root{--bg:#1e1e1e;--fg:#eee;--accent:#4b8dff} }
-  body{display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif;margin:0}
-  header,footer{padding:1rem;background:#fff;box-shadow:0 2px 4px #0002}
-  @media (prefers-color-scheme: dark){header,footer{background:#2b2b2b}}
-  header{display:flex;gap:.5rem;flex-wrap:wrap}
-  details>summary{cursor:pointer;font-weight:600}
-  input{flex:1;max-width:260px;padding:.5rem;border:1px solid #ccc;border-radius:4px}
-  button{padding:.75rem 1.5rem;border:none;border-radius:4px;background:var(--accent);color:#fff;font-size:1rem;cursor:pointer;min-height:42px;min-width:90px}
-  button:disabled{opacity:.5;cursor:not-allowed}
-  pre{flex:1;background:#000;color:#0f0;font-family:monospace;font-size:.75rem;margin:0;padding:.5rem;overflow:auto}
-  pre .info{color:#08f} pre .ok{color:#0f0} pre .err{color:#f44}
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Drive Create Test</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --fg: #222;
+      --accent: #1669f2;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #1e1e1e; --fg: #eee; --accent: #4b8dff; }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      display: flex; flex-direction: column; height: 100vh;
+      background: var(--bg); color: var(--fg);
+      font-family: system-ui, sans-serif; margin: 0;
+    }
+    header, footer {
+      background: #fff; padding: 1rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    @media (prefers-color-scheme: dark) {
+      header, footer { background: #2b2b2b; }
+    }
+    header {
+      display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;
+    }
+    details > summary { cursor: pointer; font-weight: 600; }
+    input {
+      flex: 1; max-width: 260px; padding: 0.5rem;
+      border: 1px solid #ccc; border-radius: 4px;
+    }
+    button {
+      background: var(--accent); color: #fff;
+      border: none; border-radius: 4px;
+      padding: 0.75rem 1.5rem; font-size: 1rem;
+      cursor: pointer; min-width: 90px; min-height: 42px;
+    }
+    button:disabled {
+      opacity: 0.5; cursor: not-allowed;
+    }
+    #status {
+      width: 100%; text-align: center;
+      margin-top: 0.5rem; font-size: 0.9rem; color: #666;
+    }
+    pre {
+      flex: 1; background: #000; color: #0f0;
+      font-family: monospace; font-size: 0.75rem;
+      padding: 0.5rem; overflow: auto; margin: 0;
+    }
+    pre .info { color: #08f; }
+    pre .ok   { color: #0f0; }
+    pre .err  { color: #f44; }
+  </style>
 </head>
 <body>
-<header>
-  <details open>
-    <summary>Settings ⚙️</summary>
-    <label>Client ID <input id="cid" placeholder="Google OAuth Client ID"></label>
-    <label>API Key   <input id="key" placeholder="Drive API Key"></label>
-    <button id="signin" disabled>Sign in</button>
-  </details>
-</header>
+  <header>
+    <details open>
+      <summary>Settings ⚙️</summary>
+      <label>Client ID <input id="cid" placeholder="Google OAuth Client ID"></label>
+      <label>API Key   <input id="key" placeholder="Drive API Key"></label>
+      <button id="signin" disabled>Sign in</button>
+    </details>
+    <div id="status">Sign in to enable Create</div>
+  </header>
 
-<footer style="display:flex;justify-content:center;padding:1.5rem">
-  <button id="create" disabled>Create .txt</button>
-</footer>
+  <footer style="display:flex;justify-content:center;">
+    <button id="create" disabled>Create .txt</button>
+  </footer>
 
-<pre id="log"></pre>
+  <pre id="log"></pre>
 
-<!-- Google SDKs -->
-<script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="https://apis.google.com/js/api.js" async defer></script>
+  <script src="https://accounts.google.com/gsi/client" defer></script>
+  <script src="https://apis.google.com/js/api.js" defer></script>
+  <script type="module" defer>
+    const FILE_NAME = 'Drive Sync Test.txt';
+    const $ = id => document.getElementById(id);
+    const logEl = $('log');
 
-<script type="module">
-/* ========= helpers ========= */
-const FILE_NAME = 'Drive Sync Test.txt';
-const $ = id => document.getElementById(id);
-const logEl = $('log');
-function log(msg, cls = '') {
-  const stamp = `[${new Date().toLocaleTimeString()}] `;
-  const span = `<span class="${cls}">${stamp}${msg}</span>\n`;
-  logEl.insertAdjacentHTML('beforeend', span);
-  logEl.scrollTop = logEl.scrollHeight;
-  console[(cls === 'err' ? 'error' : 'log')](msg);
-}
-const info  = m => log(m, 'info');
-const ok    = m => log(m, 'ok');
-const error = m => log(m, 'err');
+    function log(msg, cls = '') {
+      const time = new Date().toLocaleTimeString();
+      const line = `<span class="${cls}">[${time}] ${msg}</span>\\n`;
+      logEl.insertAdjacentHTML('beforeend', line);
+      logEl.scrollTop = logEl.scrollHeight;
+      console[(cls === 'err' ? 'error' : 'log')](msg);
+    }
+    const info  = m => { log(m, 'info'); updateStatus(m); };
+    const ok    = m => { log(m, 'ok');   updateStatus(m); };
+    const error = m => { log(m, 'err');  updateStatus(m); };
 
-/* ========= localStorage for creds ========= */
-const LS = {
-  get cid(){ return localStorage.getItem('cid'); },
-  set cid(v){ localStorage.setItem('cid', v); },
-  get key(){ return localStorage.getItem('key'); },
-  set key(v){ localStorage.setItem('key', v); }
-};
+    function updateStatus(text) {
+      $('status').textContent = text;
+    }
 
-let tokenClient, accessToken = null;
+    const LS = {
+      get cid(){ return localStorage.getItem('cid'); },
+      set cid(v){ localStorage.setItem('cid', v); },
+      get key(){ return localStorage.getItem('key'); },
+      set key(v){ localStorage.setItem('key', v); }
+    };
 
-/* ========= init UI ========= */
-window.addEventListener('DOMContentLoaded', () => {
-  if (LS.cid) $('cid').value = LS.cid;
-  if (LS.key) $('key').value = LS.key;
-  updateSigninButton();
+    let tokenClient, accessToken = null;
 
-  $('cid').oninput = () => { LS.cid = $('cid').value.trim(); updateSigninButton(); };
-  $('key').oninput = () => { LS.key = $('key').value.trim(); updateSigninButton(); };
+    window.addEventListener('DOMContentLoaded', () => {
+      if (LS.cid) $('cid').value = LS.cid;
+      if (LS.key) $('key').value = LS.key;
+      updateButtons();
 
-  $('signin').onclick = handleSignIn;
-  $('create').onclick = createTxt;
-});
+      $('cid').oninput = () => { LS.cid = $('cid').value.trim(); updateButtons(); };
+      $('key').oninput = () => { LS.key = $('key').value.trim(); updateButtons(); };
 
-function updateSigninButton() {
-  $('signin').disabled = !($('cid').value && $('key').value);
-}
+      $('signin').onclick = handleSignIn;
+      $('create').onclick = () => createTxt(false);
+    });
 
-/* ========= OAuth sign-in ========= */
-function handleSignIn() {
-  tokenClient ??= google.accounts.oauth2.initTokenClient({
-    client_id: $('cid').value.trim(),
-    scope: 'https://www.googleapis.com/auth/drive.file',
-    callback: async resp => {
-      if (resp.error) { return error('Auth error: ' + resp.error); }
-      accessToken = resp.access_token; ok('access_token acquired');
+    function updateButtons() {
+      const ready = !!($('cid').value && $('key').value);
+      $('signin').disabled = !ready;
+      $('create').disabled = true;
+      updateStatus(ready ? 'Ready to sign in' : 'Sign in to enable Create');
+    }
 
+    function handleSignIn() {
+      if (!window.google?.accounts?.oauth2) {
+        return error('GSI SDK not loaded');
+      }
+      tokenClient ??= google.accounts.oauth2.initTokenClient({
+        client_id: $('cid').value.trim(),
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        callback: async resp => {
+          if (resp.error) { return error('Auth error: ' + resp.error); }
+          accessToken = resp.access_token; ok('access_token acquired');
+
+          try {
+            await new Promise((resolve, reject) => {
+              gapi.load('client', {
+                callback: resolve,
+                onerror: () => reject(new Error('gapi.client load failed'))
+              });
+            });
+            await gapi.client.init({
+              apiKey: $('key').value.trim(),
+              discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+            });
+            gapi.client.setToken({ access_token: accessToken });
+            $('signin').disabled = true;
+            $('create').disabled = false;
+            info('Signed in – ready to create');
+          } catch (e) {
+            error('gapi init failed: ' + e.message);
+          }
+        }
+      });
+      tokenClient.requestAccessToken({ prompt: 'consent' });
+    }
+
+    async function createTxt(retried) {
+      if (!accessToken) return;
+      if (retried === undefined) retried = false;
+      const content = 'Hello, Drive! ' + new Date().toLocaleString();
+      ok('⏳ files.create …');
       try {
-        await gapi.load('client');
-        await gapi.client.init({
-          apiKey: $('key').value.trim(),
-          discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+        const resp = await gapi.client.drive.files.create({
+          resource: { name: FILE_NAME, mimeType: 'text/plain' },
+          media:    { mimeType: 'text/plain', body: content },
+          fields: 'id'
         });
-        gapi.client.setToken({ access_token: accessToken });   // <- fixed
-        $('signin').disabled = true;
-        $('create').disabled = false;
-        info('Signed in – ready to create file');
+        ok(\`✅ files.create id:\${resp.result.id} bytes:\${content.length}\`);
       } catch (e) {
-        error('gapi init failed: ' + e.message);
+        if (e.status === 401 && !retried) {
+          info('Token expired – refreshing silently');
+          await new Promise(r => tokenClient.requestAccessToken({ prompt: '', callback: r }));
+          return createTxt(true);
+        }
+        error('Create failed: ' + (e.message || e));
       }
     }
-  });
-  tokenClient.requestAccessToken({ prompt: 'consent' });
-}
-
-/* ========= Create the .txt file ========= */
-async function createTxt() {
-  if (!accessToken) { return; }
-
-  const content = 'Hello, Drive! ' + new Date().toLocaleString();
-  ok('⏳ files.create …');
-
-  try {
-    const resp = await gapi.client.drive.files.create({
-      resource: { name: FILE_NAME, mimeType: 'text/plain' },
-      media:    { mimeType: 'text/plain', body: content },
-      fields: 'id'
-    });
-    ok(`✅ files.create id:${resp.result.id} bytes:${content.length}`);
-  } catch (e) {
-    // Detect token expiry (rare in this POC) and retry once silently
-    if (e.status === 401 && tokenClient) {
-      info('Token expired – refreshing silently');
-      tokenClient.requestAccessToken({ prompt: '' });
-      return createTxt();     // retry once
-    }
-    error('Create failed: ' + (e.message || e));
-  }
-}
-</script>
+  </script>
 </body>
 </html>
