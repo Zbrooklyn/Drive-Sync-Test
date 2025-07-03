@@ -7,21 +7,16 @@
   <style>
     :root{--bg:#f5f7fa;--fg:#222;--accent:#1669f2}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    body{display:flex;flex-direction:column;height:100vh;
-         background:var(--bg);color:var(--fg);
-         font-family:system-ui,sans-serif}
+    body{display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--fg);font-family:system-ui,sans-serif}
     header,footer{background:#fff;box-shadow:0 2px 4px rgba(0,0,0,.05);padding:1rem}
     header{display:flex;gap:.5rem;align-items:center}
     details>summary{cursor:pointer;font-weight:600}
-    input{flex:1;max-width:200px;padding:.5rem;border:1px solid #ccc;border-radius:4px}
-    textarea{flex:1;width:100%;padding:1rem;border:none;resize:none;outline:none;
-             font-size:1rem;line-height:1.4}
+    input{flex:1;max-width:220px;padding:.5rem;border:1px solid #ccc;border-radius:4px}
+    textarea{flex:1;width:100%;padding:1rem;border:none;resize:none;outline:none;font-size:1rem;line-height:1.4}
     footer{display:flex;gap:1rem;justify-content:center}
-    button{padding:.75rem 1.5rem;border:none;border-radius:4px;
-           background:var(--accent);color:#fff;cursor:pointer;font-size:1rem}
+    button{padding:.75rem 1.5rem;border:none;border-radius:4px;background:var(--accent);color:#fff;font-size:1rem;cursor:pointer}
     button:disabled{opacity:.5;cursor:not-allowed}
-    dialog{border:none;border-radius:6px;padding:1rem;background:#fff;
-           box-shadow:0 2px 10px rgba(0,0,0,.2);max-width:90%;width:300px}
+    dialog{border:none;border-radius:6px;padding:1rem;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.2);max-width:90%;width:320px}
     dialog::backdrop{background:rgba(0,0,0,.4)}
     dialog p{margin-bottom:1rem}
     dialog menu{display:flex;justify-content:flex-end}
@@ -35,15 +30,14 @@
   </style>
 </head>
 <body>
-
   <header>
     <details open>
       <summary>Settings ⚙️</summary>
       <label>Client ID:
-        <input id="clientId" placeholder="G-Client-ID" />
+        <input id="clientId" placeholder="G-Client-ID">
       </label>
       <label>API Key:
-        <input id="apiKey" placeholder="G-API-Key" />
+        <input id="apiKey" placeholder="G-API-Key">
       </label>
       <button id="signin" disabled>Sign in</button>
     </details>
@@ -56,53 +50,48 @@
     <button id="save" disabled>Save ⭱</button>
   </footer>
 
-  <!-- Message dialog -->
+  <!-- Dialog for all messages -->
   <dialog id="msgDialog">
     <p id="msgText"></p>
-    <menu>
-      <button id="closeDialog">OK</button>
-    </menu>
+    <menu><button id="closeDialog">OK</button></menu>
   </dialog>
 
-  <!-- GIS + gapi -->
+  <!-- Google Identity Services & Google API client -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://apis.google.com/js/api.js" async defer></script>
 
   <script type="module">
+  /* ==== constants & state ==== */
   const FILE_NAME = 'quick-note.txt';
-  let tokenClient, accessToken;
+  let tokenClient, accessToken = null;
 
-  // DOM refs
+  /* ==== DOM refs ==== */
   const clientIn    = document.getElementById('clientId');
   const keyIn       = document.getElementById('apiKey');
   const signBtn     = document.getElementById('signin');
   const loadBtn     = document.getElementById('load');
   const saveBtn     = document.getElementById('save');
   const noteTA      = document.getElementById('note');
-  const dialogEl    = document.getElementById('msgDialog');
-  const dialogText  = document.getElementById('msgText');
-  const closeDialog = document.getElementById('closeDialog');
+  const dlg         = document.getElementById('msgDialog');
+  const dlgText     = document.getElementById('msgText');
+  document.getElementById('closeDialog').onclick = () => dlg.close();
 
-  // localStorage helpers
+  /* ==== localStorage helpers ==== */
   const LS = {
-    get clientId(){ return localStorage.getItem('gClientId') },
-    set clientId(v){ localStorage.setItem('gClientId', v) },
-    get apiKey(){ return localStorage.getItem('gApiKey') },
-    set apiKey(v){ localStorage.setItem('gApiKey', v) },
-    get token(){ return localStorage.getItem('gAccessToken') },
-    set token(v){ localStorage.setItem('gAccessToken', v) },
-    get fileId(){ return localStorage.getItem('noteFileId') },
-    set fileId(v){ localStorage.setItem('noteFileId', v) }
+    get clientId(){ return localStorage.getItem('gClientId'); },
+    set clientId(v){ localStorage.setItem('gClientId', v); },
+    get apiKey(){ return localStorage.getItem('gApiKey'); },
+    set apiKey(v){ localStorage.setItem('gApiKey', v); },
+    get token(){ return localStorage.getItem('gAccessToken'); },
+    set token(v){ localStorage.setItem('gAccessToken', v); },
+    get fileId(){ return localStorage.getItem('noteFileId'); },
+    set fileId(v){ localStorage.setItem('noteFileId', v); }
   };
 
-  // Show message in dialog
-  function showMessage(msg) {
-    dialogText.textContent = msg;
-    dialogEl.showModal();
-  }
-  closeDialog.onclick = () => dialogEl.close();
+  /* ==== helper: show message ==== */
+  function show(msg){ dlgText.textContent = msg; dlg.showModal(); }
 
-  // Init UI & restore token if cached
+  /* ==== UI init ==== */
   window.addEventListener('DOMContentLoaded', async () => {
     if (LS.clientId) clientIn.value = LS.clientId;
     if (LS.apiKey)   keyIn.value    = LS.apiKey;
@@ -111,68 +100,67 @@
     clientIn.oninput = () => { LS.clientId = clientIn.value.trim(); updateSignState(); };
     keyIn.oninput    = () => { LS.apiKey   = keyIn.value.trim();   updateSignState(); };
 
-    signBtn.onclick = handleSignIn;
+    signBtn.onclick = signInFlow;
     saveBtn.onclick = saveNote;
     loadBtn.onclick = loadNote;
 
-    document.addEventListener('keydown', e => {
-      if ((e.ctrlKey||e.metaKey) && e.key==='s') {
-        e.preventDefault();
-        saveNote();
-      }
+    document.addEventListener('keydown', e=>{
+      if((e.ctrlKey||e.metaKey)&&e.key==='s'){ e.preventDefault(); saveNote(); }
     });
 
-    const cached = LS.token;
-    if (cached) {
+    // try restore cached token
+    if (LS.token) {
       await gapi.load('client', async () => {
         await gapi.client.init({
           apiKey: LS.apiKey,
           discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
         });
-        gapi.client.setToken({ access_token: cached });
-        accessToken = cached;
+        gapi.client.setToken({ access_token: LS.token });
+        accessToken = LS.token;
         signBtn.textContent = 'Signed in ✔';
-        enableUI();
-        showMessage('Session restored');
+        enableLoadSave();
+        show('Session restored');
       });
     }
   });
 
-  function updateSignState() {
+  function updateSignState(){
     signBtn.disabled = !(clientIn.value.trim() && keyIn.value.trim());
   }
 
-  // Sign in and cache token
-  async function handleSignIn() {
-    tokenClient ??= google.accounts.oauth2.initTokenClient({
-      client_id: clientIn.value.trim(),
-      scope: 'https://www.googleapis.com/auth/drive.file',
-      callback: async resp => {
-        if (resp.error) return showMessage('Auth error: ' + resp.error);
-        accessToken = resp.access_token;
-        LS.token = accessToken;
-        await gapi.load('client', async () => {
-          await gapi.client.init({
-            apiKey: LS.apiKey,
-            discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+  /* ==== sign-in — obtains & caches token ==== */
+  function signInFlow(){
+    if (!tokenClient){
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: clientIn.value.trim(),
+        scope: 'https://www.googleapis.com/auth/drive.file',
+        callback: async resp => {
+          if (resp.error){ show('Auth error: '+resp.error); return; }
+          accessToken = resp.access_token;
+          LS.token = accessToken;          // cache for next load
+          await gapi.load('client', async () => {
+            await gapi.client.init({
+              apiKey: LS.apiKey,
+              discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest']
+            });
+            gapi.client.setToken({ access_token: accessToken });
+            signBtn.textContent = 'Signed in ✔';
+            enableLoadSave();
+            show('Signed in successfully');
           });
-          gapi.client.setToken({ access_token });
-          signBtn.textContent = 'Signed in ✔';
-          enableUI();
-          showMessage('Signed in successfully');
-        });
-      }
-    });
+        }
+      });
+    }
     tokenClient.requestAccessToken({ prompt: 'consent' });
   }
 
-  function enableUI() {
+  function enableLoadSave(){
     signBtn.disabled = true;
     saveBtn.disabled = loadBtn.disabled = false;
   }
 
-  // Ensure or create file
-  async function ensureFileId() {
+  /* ==== helper: find/create Drive file ==== */
+  async function ensureFileId(){
     if (LS.fileId) return LS.fileId;
     const res = await gapi.client.drive.files.list({
       q: `name='${FILE_NAME}' and trashed=false`,
@@ -180,47 +168,41 @@
       pageSize: 1
     });
     const files = res.result.files || [];
-    if (files.length) {
+    if (files.length){
       LS.fileId = files[0].id;
       return LS.fileId;
     }
     return null;
   }
 
-  // Save note
-  async function saveNote() {
-    try {
+  /* ==== Save ==== */
+  async function saveNote(){
+    try{
       const id = await ensureFileId();
       const resource = { name: FILE_NAME, mimeType: 'text/plain' };
       const media    = { mimeType: 'text/plain', body: noteTA.value };
-      let resp;
-      if (!id) {
-        resp = await gapi.client.drive.files.create({ resource, media, fields:'id' });
+      if (!id){
+        const resp = await gapi.client.drive.files.create({ resource, media, fields:'id' });
         LS.fileId = resp.result.id;
       } else {
-        resp = await gapi.client.drive.files.update({ fileId: id, media, fields:'id' });
+        await gapi.client.drive.files.update({ fileId:id, media, fields:'id' });
       }
-      showMessage('Saved ✔');
-    } catch (e) {
-      console.error(e);
-      showMessage('Save error: ' + e.message);
+      show('Saved ✔');
+    }catch(e){
+      console.error(e); show('Save error: '+e.message);
     }
   }
 
-  // Load note
-  async function loadNote() {
-    try {
+  /* ==== Load ==== */
+  async function loadNote(){
+    try{
       const id = await ensureFileId();
-      if (!id) {
-        showMessage('No file yet—Save first!');
-        return;
-      }
-      const res = await gapi.client.drive.files.get({ fileId: id, alt: 'media' });
+      if (!id){ show('No file yet — press Save first!'); return; }
+      const res = await gapi.client.drive.files.get({ fileId:id, alt:'media' });
       noteTA.value = res.body;
-      showMessage('Loaded ✔');
-    } catch (e) {
-      console.error(e);
-      showMessage('Load error: ' + e.message);
+      show('Loaded ✔');
+    }catch(e){
+      console.error(e); show('Load error: '+e.message);
     }
   }
   </script>
